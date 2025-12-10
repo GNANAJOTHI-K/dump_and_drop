@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "973149968770",
+    "project_id": "dump-and-drop",
+    "storage_bucket": "dump-and-drop.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:973149968770:android:06edfa2de0d1a111f7d79b",
+        "android_client_info": {
+          "package_name": "com.example.dump_and_drop"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrvc2i3CE767hzhpjpSs-CfgwUTkFfdSE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
