@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:get/get.dart';
 
 import 'package:dump_and_drop/customer flow/customer_goods_delivery_page.dart';
 import 'package:dump_and_drop/customer flow/customer_ride_booking_page.dart';
 import 'package:dump_and_drop/customer flow/your_bookings_screen.dart';
 import 'package:dump_and_drop/customer flow/inbox_screen.dart';
 import 'package:dump_and_drop/customer flow/profile_screen.dart';
+import '../controllers/home_controller.dart';
 
 const Color kPrimaryColor = Color(0xFF446FA8);
 
@@ -18,13 +20,12 @@ class HomeIntroPage extends StatefulWidget {
 }
 
 class _HomeIntroPageState extends State<HomeIntroPage> {
-  int _currentIndex = 0;
-  String _selectedService = "";
+  final HomeController _ctrl = Get.put(HomeController());
 
   User? get _user => FirebaseAuth.instance.currentUser;
 
   void _goToGoodsDelivery() {
-    setState(() => _selectedService = "goods");
+    _ctrl.selectService('goods');
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -34,7 +35,7 @@ class _HomeIntroPageState extends State<HomeIntroPage> {
   }
 
   void _goToRideBooking() {
-    setState(() => _selectedService = "ride");
+    _ctrl.selectService('ride');
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -60,15 +61,15 @@ class _HomeIntroPageState extends State<HomeIntroPage> {
         centerTitle: false,
         title: _buildUserHeader(),
       ),
-      body: pages[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        selectedItemColor: kPrimaryColor,
-        unselectedItemColor: Colors.grey,
-        type: BottomNavigationBarType.fixed,
-        onTap: (index) {
-          setState(() => _currentIndex = index);
-        },
+      body: Obx(() => pages[_ctrl.currentIndex.value]),
+      bottomNavigationBar: Obx(() => BottomNavigationBar(
+            currentIndex: _ctrl.currentIndex.value,
+            selectedItemColor: kPrimaryColor,
+            unselectedItemColor: Colors.grey,
+            type: BottomNavigationBarType.fixed,
+            onTap: (index) {
+              _ctrl.setIndex(index);
+            },
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
@@ -87,7 +88,7 @@ class _HomeIntroPageState extends State<HomeIntroPage> {
             label: 'Profile',
           ),
         ],
-      ),
+          )),
     );
   }
 
@@ -153,8 +154,7 @@ class _HomeIntroPageState extends State<HomeIntroPage> {
 
   Widget _buildHomeBody() {
     const darkGreen = Color(0xFF2F4F4F);
-
-    return SingleChildScrollView(
+    return Obx(() => SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -178,7 +178,7 @@ class _HomeIntroPageState extends State<HomeIntroPage> {
           ),
           const SizedBox(height: 20),
           _ServiceCard(
-            isSelected: _selectedService == 'ride',
+            isSelected: _ctrl.selectedService.value == 'ride',
             title: 'Book a Ride',
             subtitle: 'Quick rides for you or your team, any time.',
             onBookNow: _goToRideBooking,
@@ -186,7 +186,7 @@ class _HomeIntroPageState extends State<HomeIntroPage> {
           ),
           const SizedBox(height: 16),
           _ServiceCard(
-            isSelected: _selectedService == 'goods',
+            isSelected: _ctrl.selectedService.value == 'goods',
             title: 'Goods Delivery',
             subtitle: 'Send parcels and goods safely and on time.',
             onBookNow: _goToGoodsDelivery,
@@ -194,7 +194,7 @@ class _HomeIntroPageState extends State<HomeIntroPage> {
           ),
         ],
       ),
-    );
+    ));
   }
 }
 

@@ -1,51 +1,63 @@
-// lib/driver_signup_screen.dart
+// lib/driver_login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import 'driver flow/choose_things_page.dart';
-import 'driver_login_screen.dart';
+import 'driver flow/driver_status_page.dart';
+
 
 const Color kPrimaryColor = Color(0xFF446FA8);
-const Color kFieldBg = Color(0xFFF5F7FB);
 
-class DriverSignupScreen extends StatefulWidget {
-  const DriverSignupScreen({super.key});
+class DriverLoginScreen extends StatefulWidget {
+  const DriverLoginScreen({super.key});
 
   @override
-  State<DriverSignupScreen> createState() => _DriverSignupScreenState();
+  State<DriverLoginScreen> createState() => _DriverLoginScreenState();
 }
 
-class _DriverSignupScreenState extends State<DriverSignupScreen> {
+class _DriverLoginScreenState extends State<DriverLoginScreen> {
   bool _isLoading = false;
 
-  Future<void> _saveDriverAndGo(User user) async {
+  /// ✅ SAVE DRIVER IF NEW OR REDIRECT IF EXISTS
+  Future<void> _handleDriverAfterLogin(User user) async {
     final driverRef =
         FirebaseFirestore.instance.collection('drivers').doc(user.uid);
 
+    final driverDoc = await driverRef.get();
+
+    // ✅ IF DRIVER ALREADY EXISTS → GO TO STATUS PAGE
+    if (driverDoc.exists) {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const DriverStatusPage()),
+      );
+      return;
+    }
+
+    // ✅ ELSE → NEW DRIVER → CREATE RECORD → GO TO CHOOSE THINGS
     await driverRef.set({
       'uid': user.uid,
       'name': user.displayName ?? '',
       'email': user.email ?? '',
       'phone': user.phoneNumber ?? '',
       'photoUrl': user.photoURL ?? '',
-      'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
       'role': 'driver',
       'provider': 'google',
-    }, SetOptions(merge: true));
+      'status': 'new', // new driver before form
+    });
 
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (context) => const ChooseThingsPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const ChooseThingsPage()),
     );
   }
 
-  Future<void> _continueWithGoogle() async {
+  Future<void> _continueWithGoogleLogin() async {
     try {
       setState(() => _isLoading = true);
 
@@ -64,33 +76,21 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
 
       final userCred =
           await FirebaseAuth.instance.signInWithCredential(credential);
+
       final user = userCred.user;
 
       if (user != null) {
-        await _saveDriverAndGo(user);
+        await _handleDriverAfterLogin(user); // ✅ UPDATED FLOW
       }
     } catch (e) {
-      debugPrint('Driver Google signup error: $e');
+      debugPrint('Driver Google login error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Google sign-in failed: $e')),
+        SnackBar(content: Text('Google login failed: $e')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  void _continueWithFacebookDummy() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Facebook login coming soon')),
-    );
-  }
-
-  void _openLoginPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const DriverLoginScreen()),
-    );
   }
 
   void _onBackPressed() {
@@ -107,9 +107,9 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              // 🔹 Top image with back button (same style as customer)
+              // 🔹 Top image with back button
               Container(
-                height: h * 0.45,
+                height: h * 0.60,
                 width: double.infinity,
                 decoration: const BoxDecoration(
                   image: DecorationImage(
@@ -146,7 +146,7 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Welcome driver 👋',
+                      'Welcome back driver 👋',
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
@@ -155,7 +155,7 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Sign up to accept ride and goods delivery requests.',
+                      'Login to continue accepting rides and deliveries.',
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.black54,
@@ -165,7 +165,7 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                     const SizedBox(height: 20),
 
                     const Text(
-                      'Sign up',
+                      'Login',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -179,7 +179,7 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                       height: 48,
                       child: OutlinedButton(
                         onPressed:
-                            _isLoading ? null : () => _continueWithGoogle(),
+                            _isLoading ? null : _continueWithGoogleLogin,
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(color: Colors.grey.shade300),
                           shape: RoundedRectangleBorder(
@@ -202,61 +202,6 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
                               ),
                             ),
                           ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // 🔹 Facebook (dummy)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed:
-                            _isLoading ? null : _continueWithFacebookDummy,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1877F2),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          textStyle: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.facebook, size: 22),
-                            SizedBox(width: 8),
-                            Text('Continue with Facebook'),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // 🔹 Login button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 46,
-                      child: OutlinedButton(
-                        onPressed: _isLoading ? null : _openLoginPage,
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: Colors.grey.shade400),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'Already have an account? Login',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: kPrimaryColor,
-                          ),
                         ),
                       ),
                     ),

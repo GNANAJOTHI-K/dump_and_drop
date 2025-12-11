@@ -1,0 +1,2 @@
+Running Gradle task 'assembleRelease'...                           50.0s
+√ Built build\app\outputs\flutter-apk\app-release.apk (53.2MB)

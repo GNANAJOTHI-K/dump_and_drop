@@ -1,4 +1,14 @@
+// lib/passenger_vehicle_details_page.dart
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_core/firebase_core.dart';
+
+import 'driver_status_page.dart';
 
 const Color kPrimaryColor = Color(0xFF446FA8);
 const Color kFieldBg = Color(0xFFF5F7FB);
@@ -16,6 +26,9 @@ class _PassengerVehicleDetailsPageState
   final _formKey = GlobalKey<FormState>();
 
   int _currentStep = 0; // 0..3 (4 sections)
+  bool _isSaving = false;
+
+  final ImagePicker _picker = ImagePicker();
 
   // SECTION 1 – Driver Identity
   final TextEditingController _fullNameController = TextEditingController();
@@ -57,6 +70,16 @@ class _PassengerVehicleDetailsPageState
   final TextEditingController _insuranceExpiryController =
       TextEditingController();
   final TextEditingController _pucExpiryController = TextEditingController();
+
+  // 🔹 Image files (locally) for upload
+  File? _idFrontFile;
+  File? _idBackFile;
+  File? _dlFrontFile;
+  File? _dlBackFile;
+  File? _rcFile;
+  File? _insuranceFile;
+  File? _pucFile;
+  File? _vehicleFile;
 
   @override
   void dispose() {
@@ -107,14 +130,75 @@ class _PassengerVehicleDetailsPageState
     );
   }
 
-  void _onPickDocument(String docName) {
-    debugPrint("Pick image for: $docName");
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Photo picker for $docName (to be implemented)")),
-    );
+  // 🔹 Pick image using image_picker and assign to specific field
+  Future<void> _pickImage(String key) async {
+    final XFile? picked =
+        await _picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
+
+    if (picked == null) return;
+
+    final file = File(picked.path);
+
+    setState(() {
+      switch (key) {
+        case 'idFront':
+          _idFrontFile = file;
+          break;
+        case 'idBack':
+          _idBackFile = file;
+          break;
+        case 'dlFront':
+          _dlFrontFile = file;
+          break;
+        case 'dlBack':
+          _dlBackFile = file;
+          break;
+        case 'rc':
+          _rcFile = file;
+          break;
+        case 'insurance':
+          _insuranceFile = file;
+          break;
+        case 'puc':
+          _pucFile = file;
+          break;
+        case 'vehicle':
+          _vehicleFile = file;
+          break;
+      }
+    });
   }
 
-  void _onNextStep() {
+  // 🔹 Safer upload with try/catch + unique filename
+  Future<String?> _uploadFile(
+    String driverId,
+    File? file,
+    String fileName,
+  ) async {
+    if (file == null) return null;
+
+    try {
+      final uniqueName =
+          '${fileName}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+      final ref = FirebaseStorage.instance
+          .ref()
+          .child('drivers/$driverId/passenger_vehicle/$uniqueName');
+
+      final taskSnapshot = await ref.putFile(file);
+      final url = await taskSnapshot.ref.getDownloadURL();
+      return url;
+    } on FirebaseException catch (e) {
+      debugPrint(
+          "🔥 Storage upload error for $fileName: ${e.code} - ${e.message}");
+      return null; // skip this image but don't break entire flow
+    } catch (e) {
+      debugPrint("🔥 Unknown storage error for $fileName: $e");
+      return null;
+    }
+  }
+
+  Future<void> _onNextStep() async {
     if (!_formKey.currentState!.validate()) return;
 
     if (_currentStep < 3) {
@@ -122,7 +206,7 @@ class _PassengerVehicleDetailsPageState
         _currentStep++;
       });
     } else {
-      _onSubmitAll();
+      await _onSubmitAll();
     }
   }
 
@@ -136,40 +220,114 @@ class _PassengerVehicleDetailsPageState
     }
   }
 
-  void _onSubmitAll() {
-    final data = {
-      "fullName": _fullNameController.text.trim(),
-      "dob": _dobController.text.trim(),
-      "phone": _phoneController.text.trim(),
-      "password": _passwordController.text.trim(),
-      "address": _addressController.text.trim(),
-      "pincode": _pincodeController.text.trim(),
-      "emergencyName": _emergencyNameController.text.trim(),
-      "emergencyPhone": _emergencyPhoneController.text.trim(),
-      "idType": _idType,
-      "idNumber": _idNumberController.text.trim(),
-      "dlNumber": _dlNumberController.text.trim(),
-      "dlValidFrom": _dlValidFromController.text.trim(),
-      "dlValidTo": _dlValidToController.text.trim(),
-      "seatCapacity": _seatCapacity,
-      "isAC": _isAC,
-      "vehicleType": _vehicleType,
-      "brand": _brandController.text.trim(),
-      "model": _modelController.text.trim(),
-      "year": _yearController.text.trim(),
-      "color": _colorController.text.trim(),
-      "regNumber": _regNumberController.text.trim(),
-      "rcNumber": _rcNumberController.text.trim(),
-      "insuranceNumber": _insuranceNumberController.text.trim(),
-      "insuranceExpiry": _insuranceExpiryController.text.trim(),
-      "pucExpiry": _pucExpiryController.text.trim(),
-    };
+  Future<void> _onSubmitAll() async {
+    final user = FirebaseAuth.instance.currentUser;
 
-    debugPrint("FINAL PASSENGER VEHICLE DATA: $data");
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text("Please login as driver before submitting.")),
+      );
+      return;
+    }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("All details captured (API pending)")),
-    );
+    try {
+      setState(() => _isSaving = true);
+
+      // 🔹 Upload images to Storage and get URLs
+      final idFrontUrl =
+          await _uploadFile(user.uid, _idFrontFile, 'id_front_photo');
+      final idBackUrl =
+          await _uploadFile(user.uid, _idBackFile, 'id_back_photo');
+      final dlFrontUrl =
+          await _uploadFile(user.uid, _dlFrontFile, 'dl_front_photo');
+      final dlBackUrl =
+          await _uploadFile(user.uid, _dlBackFile, 'dl_back_photo');
+      final rcUrl = await _uploadFile(user.uid, _rcFile, 'rc_photo');
+      final insuranceUrl =
+          await _uploadFile(user.uid, _insuranceFile, 'insurance_photo');
+      final pucUrl = await _uploadFile(user.uid, _pucFile, 'puc_photo');
+      final vehicleUrl =
+          await _uploadFile(user.uid, _vehicleFile, 'vehicle_photo');
+
+      // 🔹 Text + URL data
+      final data = {
+        "fullName": _fullNameController.text.trim(),
+        "dob": _dobController.text.trim(),
+        "phone": _phoneController.text.trim(),
+        // ⚠️ In real apps, don't store plain password; here it's just for form capture.
+        "password": _passwordController.text.trim(),
+        "address": _addressController.text.trim(),
+        "pincode": _pincodeController.text.trim(),
+        "emergencyName": _emergencyNameController.text.trim(),
+        "emergencyPhone": _emergencyPhoneController.text.trim(),
+        "idType": _idType,
+        "idNumber": _idNumberController.text.trim(),
+        "dlNumber": _dlNumberController.text.trim(),
+        "dlValidFrom": _dlValidFromController.text.trim(),
+        "dlValidTo": _dlValidToController.text.trim(),
+        "seatCapacity": _seatCapacity,
+        "isAC": _isAC,
+        "vehicleType": _vehicleType,
+        "brand": _brandController.text.trim(),
+        "model": _modelController.text.trim(),
+        "year": _yearController.text.trim(),
+        "color": _colorController.text.trim(),
+        "regNumber": _regNumberController.text.trim(),
+        "rcNumber": _rcNumberController.text.trim(),
+        "insuranceNumber": _insuranceNumberController.text.trim(),
+        "insuranceExpiry": _insuranceExpiryController.text.trim(),
+        "pucExpiry": _pucExpiryController.text.trim(),
+
+        // 🔹 Image URLs
+        "idFrontUrl": idFrontUrl,
+        "idBackUrl": idBackUrl,
+        "dlFrontUrl": dlFrontUrl,
+        "dlBackUrl": dlBackUrl,
+        "rcPhotoUrl": rcUrl,
+        "insurancePhotoUrl": insuranceUrl,
+        "pucPhotoUrl": pucUrl,
+        "vehiclePhotoUrl": vehicleUrl,
+      };
+
+      debugPrint("FINAL PASSENGER VEHICLE DATA: $data");
+
+      await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(user.uid)
+          .set(
+        {
+          "passengerVehicleDetails": data,
+          "passengerVehicleCompleted": true,
+          "status": "pending", // ✅ for approval flow
+          "updatedAt": FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Vehicle & driver details saved.")),
+      );
+
+      // 🔹 Redirect to status page (wait for approval)
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const DriverStatusPage(),
+        ),
+        (route) => false,
+      );
+    } catch (e) {
+      debugPrint("Error saving passenger vehicle details: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to save details: $e")),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   String _stepTitle() {
@@ -284,7 +442,7 @@ class _PassengerVehicleDetailsPageState
             if (_currentStep > 0)
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _onPreviousStep,
+                  onPressed: _isSaving ? null : _onPreviousStep,
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Colors.grey.shade400),
                     shape: RoundedRectangleBorder(
@@ -298,7 +456,7 @@ class _PassengerVehicleDetailsPageState
             Expanded(
               flex: 2,
               child: ElevatedButton(
-                onPressed: _onNextStep,
+                onPressed: _isSaving ? null : _onNextStep,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kPrimaryColor,
                   foregroundColor: Colors.white,
@@ -311,7 +469,16 @@ class _PassengerVehicleDetailsPageState
                   ),
                   minimumSize: const Size(double.infinity, 52),
                 ),
-                child: Text(isLastStep ? "Submit details" : "Save & continue"),
+                child: _isSaving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(isLastStep ? "Submit details" : "Save & continue"),
               ),
             ),
           ],
@@ -458,14 +625,16 @@ class _PassengerVehicleDetailsPageState
             Expanded(
               child: _DocumentUploadTile(
                 label: "ID front photo",
-                onTap: () => _onPickDocument("ID front"),
+                file: _idFrontFile,
+                onTap: () => _pickImage("idFront"),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _DocumentUploadTile(
                 label: "ID back photo",
-                onTap: () => _onPickDocument("ID back"),
+                file: _idBackFile,
+                onTap: () => _pickImage("idBack"),
               ),
             ),
           ],
@@ -517,14 +686,16 @@ class _PassengerVehicleDetailsPageState
             Expanded(
               child: _DocumentUploadTile(
                 label: "Licence front",
-                onTap: () => _onPickDocument("Licence front"),
+                file: _dlFrontFile,
+                onTap: () => _pickImage("dlFront"),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: _DocumentUploadTile(
                 label: "Licence back",
-                onTap: () => _onPickDocument("Licence back"),
+                file: _dlBackFile,
+                onTap: () => _pickImage("dlBack"),
               ),
             ),
           ],
@@ -630,7 +801,8 @@ class _PassengerVehicleDetailsPageState
         const SizedBox(height: 10),
         _DocumentUploadTile(
           label: "Upload RC photo",
-          onTap: () => _onPickDocument("RC"),
+          file: _rcFile,
+          onTap: () => _pickImage("rc"),
         ),
         const SizedBox(height: 16),
 
@@ -647,7 +819,8 @@ class _PassengerVehicleDetailsPageState
         const SizedBox(height: 10),
         _DocumentUploadTile(
           label: "Upload insurance photo",
-          onTap: () => _onPickDocument("Insurance"),
+          file: _insuranceFile,
+          onTap: () => _pickImage("insurance"),
         ),
 
         const SizedBox(height: 16),
@@ -660,31 +833,37 @@ class _PassengerVehicleDetailsPageState
         const SizedBox(height: 10),
         _DocumentUploadTile(
           label: "Upload PUC photo",
-          onTap: () => _onPickDocument("PUC"),
+          file: _pucFile,
+          onTap: () => _pickImage("puc"),
         ),
 
         const SizedBox(height: 16),
         _DocumentUploadTile(
           label: "Upload vehicle photo",
-          onTap: () => _onPickDocument("Vehicle"),
+          file: _vehicleFile,
+          onTap: () => _pickImage("vehicle"),
         ),
       ],
     );
   }
 }
 
-// Reusable upload tile
+// Reusable upload tile – shows tick when file selected
 class _DocumentUploadTile extends StatelessWidget {
   final String label;
+  final File? file;
   final VoidCallback onTap;
 
   const _DocumentUploadTile({
     required this.label,
+    required this.file,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hasFile = file != null;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -693,18 +872,25 @@ class _DocumentUploadTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: kFieldBg,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade300),
+          border: Border.all(
+            color: hasFile ? kPrimaryColor : Colors.grey.shade300,
+          ),
         ),
         child: Row(
           children: [
-            const Icon(Icons.upload_file, size: 22, color: kPrimaryColor),
+            Icon(
+              hasFile ? Icons.check_circle : Icons.upload_file,
+              size: 22,
+              color: hasFile ? kPrimaryColor : kPrimaryColor,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                label,
-                style: const TextStyle(
+                hasFile ? "$label added" : label,
+                style: TextStyle(
                   fontSize: 14,
-                  color: Colors.black87,
+                  color: hasFile ? Colors.black : Colors.black87,
+                  fontWeight: hasFile ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
             ),

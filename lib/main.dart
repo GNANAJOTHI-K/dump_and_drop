@@ -1,10 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'splash_screen.dart';
-import 'customer_signup_screen.dart';   // contains CustomerAuthPage
-import 'customer flow/home_intro_page.dart';
+import 'role_selection_screen.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -26,32 +25,34 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         fontFamily: 'Nunito',
       ),
-      home: const _Root(), // use auth gate instead of direct SplashScreen
+      home: const _Root(),
     );
   }
 }
+class _Root extends StatefulWidget {
+  const _Root({Key? key}) : super(key: key);
 
-class _Root extends StatelessWidget {
-  const _Root({super.key});
+  @override
+  State<_Root> createState() => _RootState();
+}
+
+class _RootState extends State<_Root> {
+  bool _showSplash = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // show splash briefly on cold start, then go to role selection
+    Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _showSplash = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(), // listens to login/logout
-      builder: (context, snapshot) {
-        // still connecting → show splash
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SplashScreen();
-        }
+    if (_showSplash) return const SplashScreen();
 
-        // user is logged in → go to home; will stay here until signOut()
-        if (snapshot.data != null) {
-          return const HomeIntroPage();
-        }
 
-        // no user → show your auth/signup page
-        return const CustomerAuthPage();
-      },
-    );
+    return const RoleSelectionScreen();
   }
 }

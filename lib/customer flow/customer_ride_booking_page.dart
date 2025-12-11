@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:get/get.dart';
 
 import 'map_picker_screen.dart';
 import 'your_bookings_screen.dart';
+import '../controllers/ride_booking_controller.dart';
 
 const Color kPrimaryColor = Color(0xFF446FA8);
 
@@ -16,16 +16,7 @@ class CustomerRideBookingScreen extends StatefulWidget {
 }
 
 class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
-  String leavingFrom = "";
-  String goingTo = "";
-  DateTime? selectedDate;
-  int passengers = 1;
-
-  double? pickupLat;
-  double? pickupLng;
-  double? dropLat;
-  double? dropLng;
-  bool _isSaving = false;
+  final RideBookingController _ctrl = Get.put(RideBookingController());
 
   Future<void> _selectPickup() async {
     final result = await Navigator.push(
@@ -35,11 +26,7 @@ class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
       ),
     );
     if (result != null && result is Map<String, dynamic>) {
-      setState(() {
-        leavingFrom = result['label'] as String;
-        pickupLat = result['lat'] as double;
-        pickupLng = result['lng'] as double;
-      });
+      _ctrl.setPickup(result);
     }
   }
 
@@ -51,11 +38,7 @@ class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
       ),
     );
     if (result != null && result is Map<String, dynamic>) {
-      setState(() {
-        goingTo = result['label'] as String;
-        dropLat = result['lat'] as double;
-        dropLng = result['lng'] as double;
-      });
+      _ctrl.setDrop(result);
     }
   }
 
@@ -65,98 +48,36 @@ class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
       context: context,
       firstDate: now,
       lastDate: DateTime(now.year + 1),
-      initialDate: selectedDate ?? now,
+      initialDate: _ctrl.selectedDate.value ?? now,
     );
     if (picked != null) {
-      setState(() {
-        selectedDate = picked;
-      });
+      _ctrl.setDate(picked);
     }
   }
 
   void _incrementPassengers() {
-    setState(() {
-      passengers++;
-    });
+    _ctrl.incrementPassengers();
   }
 
   void _decrementPassengers() {
-    if (passengers > 1) {
-      setState(() {
-        passengers--;
-      });
-    }
+    _ctrl.decrementPassengers();
   }
 
   Future<void> _bookRide() async {
-    if (leavingFrom.isEmpty ||
-        goingTo.isEmpty ||
-        pickupLat == null ||
-        pickupLng == null ||
-        dropLat == null ||
-        dropLng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Select pickup and drop locations")),
-      );
-      return;
-    }
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("User not logged in")),
-      );
-      return;
-    }
-
-    setState(() {
-      _isSaving = true;
-    });
-
     try {
-      final bookingsRef = FirebaseFirestore.instance
-          .collection('customers')
-          .doc(user.uid)
-          .collection('bookings');
-
-      await bookingsRef.add({
-        'customerId': user.uid,
-        'pickupLabel': leavingFrom,
-        'pickupLat': pickupLat,
-        'pickupLng': pickupLng,
-        'dropLabel': goingTo,
-        'dropLat': dropLat,
-        'dropLng': dropLng,
-        'passengers': passengers,
-        'service': 'ride',
-        'status': 'pending',
-        'rideDate':
-            selectedDate != null ? Timestamp.fromDate(selectedDate!) : null,
-        'createdAt': FieldValue.serverTimestamp(),
+      await _ctrl.bookRide(() async {
+        if (!mounted) return;
+        await Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const YourBookingsScreen()),
+        );
       });
-
-      if (!mounted) return;
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const YourBookingsScreen()),
-      );
-    } on FirebaseException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to save booking: ${e.message}")),
-      );
     } catch (e) {
+      final msg = e is Exception ? e.toString().replaceFirst('Exception: ', '') : e.toString();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
+        SnackBar(content: Text(msg)),
       );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
     }
   }
 
@@ -181,7 +102,7 @@ class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
               height: topHeight,
               width: size.width,
               child: Image.asset(
-                "assets/images/home_logo.jpg",
+                "assets/images/car.png",
                 fit: BoxFit.cover,
               ),
             ),
@@ -203,19 +124,21 @@ class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
             left: 18,
             right: 18,
             top: cardTop,
-            child: RideSearchCard(
-              selectedDate: selectedDate,
-              leavingFrom: leavingFrom,
-              goingTo: goingTo,
-              passengers: passengers,
-              onPickupTap: _selectPickup,
-              onDropTap: _selectDrop,
-              onDateTap: _selectDate,
-              onIncrementPassengers: _incrementPassengers,
-              onDecrementPassengers: _decrementPassengers,
-              onBookTap: _isSaving ? null : _bookRide,
-              isSaving: _isSaving,
-            ),
+            child: Obx(() {
+              return RideSearchCard(
+                selectedDate: _ctrl.selectedDate.value,
+                leavingFrom: _ctrl.leavingFrom.value,
+                goingTo: _ctrl.goingTo.value,
+                passengers: _ctrl.passengers.value,
+                onPickupTap: _selectPickup,
+                onDropTap: _selectDrop,
+                onDateTap: _selectDate,
+                onIncrementPassengers: _incrementPassengers,
+                onDecrementPassengers: _decrementPassengers,
+                onBookTap: _ctrl.isSaving.value ? null : _bookRide,
+                isSaving: _ctrl.isSaving.value,
+              );
+            }),
           ),
         ],
       ),

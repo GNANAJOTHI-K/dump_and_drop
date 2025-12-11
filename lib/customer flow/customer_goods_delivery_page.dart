@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:get/get.dart';
 
 import 'map_picker_screen.dart';
 import 'your_bookings_screen.dart';
+import '../controllers/goods_delivery_controller.dart';
 
 const Color kPrimaryColor = Color(0xFF446FA8);
 
@@ -17,20 +17,7 @@ class CustomerGoodsDeliveryScreen extends StatefulWidget {
 
 class _CustomerGoodsDeliveryScreenState
     extends State<CustomerGoodsDeliveryScreen> {
-  String pickupAddress = "";
-  String dropAddress = "";
-  DateTime? selectedDate;
-  double packageWeight = 1.0;
-  String packageCategory = "Documents";
-  String vehicleType = "Bike";
-  String specialInstructions = "";
-
-  double? pickupLat;
-  double? pickupLng;
-  double? dropLat;
-  double? dropLng;
-
-  bool _isSaving = false;
+  final GoodsDeliveryController _ctrl = Get.put(GoodsDeliveryController());
 
   Future<void> _selectPickup() async {
     final result = await Navigator.push(
@@ -40,11 +27,7 @@ class _CustomerGoodsDeliveryScreenState
       ),
     );
     if (result != null && result is Map<String, dynamic>) {
-      setState(() {
-        pickupAddress = result['label'] as String;
-        pickupLat = result['lat'] as double;
-        pickupLng = result['lng'] as double;
-      });
+      _ctrl.setPickup(result);
     }
   }
 
@@ -56,11 +39,7 @@ class _CustomerGoodsDeliveryScreenState
       ),
     );
     if (result != null && result is Map<String, dynamic>) {
-      setState(() {
-        dropAddress = result['label'] as String;
-        dropLat = result['lat'] as double;
-        dropLng = result['lng'] as double;
-      });
+      _ctrl.setDrop(result);
     }
   }
 
@@ -70,55 +49,53 @@ class _CustomerGoodsDeliveryScreenState
       context: context,
       firstDate: now,
       lastDate: DateTime(now.year + 1),
-      initialDate: selectedDate ?? now,
+      initialDate: _ctrl.selectedDate.value ?? now,
     );
     if (picked != null) {
-      setState(() {
-        selectedDate = picked;
-      });
+      _ctrl.setDate(picked);
     }
   }
 
   void _changeWeight() async {
-    double tempWeight = packageWeight;
+    double tempWeight = _ctrl.packageWeight.value;
     await showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text("Select package weight"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text("${tempWeight.toStringAsFixed(1)} kg"),
-              Slider(
-                min: 0.5,
-                max: 50.0,
-                divisions: 99,
-                value: tempWeight,
-                onChanged: (v) {
-                  setState(() {
-                    tempWeight = v;
-                  });
+        return StatefulBuilder(builder: (context, setState) {
+          return AlertDialog(
+            title: const Text("Select package weight"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text("${tempWeight.toStringAsFixed(1)} kg"),
+                Slider(
+                  min: 0.5,
+                  max: 50.0,
+                  divisions: 99,
+                  value: tempWeight,
+                  onChanged: (v) {
+                    setState(() {
+                      tempWeight = v;
+                    });
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  _ctrl.setWeight(tempWeight);
+                  Navigator.pop(context);
                 },
+                child: const Text("OK"),
               ),
             ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  packageWeight = tempWeight;
-                });
-                Navigator.pop(context);
-              },
-              child: const Text("OK"),
-            ),
-          ],
-        );
+          );
+        });
       },
     );
   }
@@ -150,9 +127,7 @@ class _CustomerGoodsDeliveryScreenState
     );
 
     if (result != null) {
-      setState(() {
-        packageCategory = result;
-      });
+      _ctrl.setCategory(result);
     }
   }
 
@@ -181,14 +156,12 @@ class _CustomerGoodsDeliveryScreenState
     );
 
     if (result != null) {
-      setState(() {
-        vehicleType = result;
-      });
+      _ctrl.setVehicle(result);
     }
   }
 
   void _editInstructions() async {
-    final controller = TextEditingController(text: specialInstructions);
+    final controller = TextEditingController(text: _ctrl.specialInstructions.value);
     final result = await showDialog<String>(
       context: context,
       builder: (context) {
@@ -217,84 +190,25 @@ class _CustomerGoodsDeliveryScreenState
     );
 
     if (result != null) {
-      setState(() {
-        specialInstructions = result;
-      });
+      _ctrl.setInstructions(result);
     }
   }
 
   Future<void> _bookGoodsDelivery() async {
-    if (pickupAddress.isEmpty ||
-        dropAddress.isEmpty ||
-        pickupLat == null ||
-        pickupLng == null ||
-        dropLat == null ||
-        dropLng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Select pickup and drop locations")),
-      );
-      return;
-    }
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("User not logged in")),
-      );
-      return;
-    }
-
-    setState(() {
-      _isSaving = true;
-    });
-
     try {
-      final bookingsRef = FirebaseFirestore.instance
-          .collection('customers')
-          .doc(user.uid)
-          .collection('bookings');
-
-      await bookingsRef.add({
-        'customerId': user.uid,
-        'pickupLabel': pickupAddress,
-        'pickupLat': pickupLat,
-        'pickupLng': pickupLng,
-        'dropLabel': dropAddress,
-        'dropLat': dropLat,
-        'dropLng': dropLng,
-        'service': 'goods',
-        'status': 'pending',
-        'pickupDate':
-            selectedDate != null ? Timestamp.fromDate(selectedDate!) : null,
-        'packageWeight': packageWeight,
-        'packageCategory': packageCategory,
-        'vehicleType': vehicleType,
-        'specialInstructions': specialInstructions,
-        'createdAt': FieldValue.serverTimestamp(),
+      await _ctrl.bookDelivery(() async {
+        if (!mounted) return;
+        await Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const YourBookingsScreen()),
+        );
       });
-
-      if (!mounted) return;
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const YourBookingsScreen()),
-      );
-    } on FirebaseException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to save delivery: ${e.message}")),
-      );
     } catch (e) {
+      final msg = e is Exception ? e.toString().replaceFirst('Exception: ', '') : e.toString();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: $e")),
+        SnackBar(content: Text(msg)),
       );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
     }
   }
 
@@ -341,24 +255,26 @@ class _CustomerGoodsDeliveryScreenState
             left: 18,
             right: 18,
             top: cardTop,
-            child: GoodsDeliveryCard(
-              selectedDate: selectedDate,
-              pickupAddress: pickupAddress,
-              dropAddress: dropAddress,
-              packageWeight: packageWeight,
-              packageCategory: packageCategory,
-              vehicleType: vehicleType,
-              specialInstructions: specialInstructions,
-              onPickupTap: _selectPickup,
-              onDropTap: _selectDrop,
-              onDateTap: _selectDate,
-              onWeightTap: _changeWeight,
-              onCategoryTap: _selectCategory,
-              onVehicleTap: _selectVehicle,
-              onInstructionsTap: _editInstructions,
-              onBookTap: _isSaving ? null : _bookGoodsDelivery,
-              isSaving: _isSaving,
-            ),
+            child: Obx(() {
+              return GoodsDeliveryCard(
+                selectedDate: _ctrl.selectedDate.value,
+                pickupAddress: _ctrl.pickupAddress.value,
+                dropAddress: _ctrl.dropAddress.value,
+                packageWeight: _ctrl.packageWeight.value,
+                packageCategory: _ctrl.packageCategory.value,
+                vehicleType: _ctrl.vehicleType.value,
+                specialInstructions: _ctrl.specialInstructions.value,
+                onPickupTap: _selectPickup,
+                onDropTap: _selectDrop,
+                onDateTap: _selectDate,
+                onWeightTap: _changeWeight,
+                onCategoryTap: _selectCategory,
+                onVehicleTap: _selectVehicle,
+                onInstructionsTap: _editInstructions,
+                onBookTap: _ctrl.isSaving.value ? null : _bookGoodsDelivery,
+                isSaving: _ctrl.isSaving.value,
+              );
+            }),
           ),
         ],
       ),

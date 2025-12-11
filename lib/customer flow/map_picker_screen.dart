@@ -1,10 +1,12 @@
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
+ 
+
+import 'package:get/get.dart';
+
+import '../controllers/map_picker_controller.dart';
 
 const Color kPrimaryColor = Color(0xFF446FA8);
 
@@ -20,12 +22,7 @@ class MapPickerScreen extends StatefulWidget {
 class _MapPickerScreenState extends State<MapPickerScreen> {
   final MapController _mapController = MapController();
   final TextEditingController _searchController = TextEditingController();
-
-  LatLng _center = const LatLng(12.9716, 77.5946);
-  LatLng? _selected;
-  bool _isSearching = false;
-  List<Map<String, dynamic>> _results = [];
-  String? _selectedLabelFromSearch;
+  final MapPickerController _ctrl = Get.put(MapPickerController());
 
   @override
   void initState() {
@@ -34,134 +31,41 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
   }
 
   Future<void> _initLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    LocationPermission permission = await Geolocator.checkPermission();
-
-    if (!serviceEnabled) return;
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      return;
-    }
-
-    final pos = await Geolocator.getCurrentPosition();
-    final current = LatLng(pos.latitude, pos.longitude);
-
-    setState(() {
-      _center = current;
-      _selected = current;
-      _selectedLabelFromSearch = null;
-    });
-
-    _mapController.move(current, 15);
+    final cur = await _ctrl.initLocation();
+    if (cur != null) _mapController.move(cur, 15);
   }
 
   Future<void> _searchPlace() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
-
-    setState(() {
-      _isSearching = true;
-      _results = [];
-    });
-
-    final uri = Uri.parse(
-      'https://nominatim.openstreetmap.org/search?q=$query&format=json&limit=5',
-    );
-
-    final response = await http.get(
-      uri,
-      headers: {'User-Agent': 'dump_and_drop_app'},
-    );
-
-    if (!mounted) return;
-
-    if (response.statusCode == 200) {
-      final List data = jsonDecode(response.body) as List;
-      final List<Map<String, dynamic>> parsed = data.map((e) {
-        return {
-          'displayName': e['display_name'] as String,
-          'lat': double.tryParse(e['lat'] as String) ?? 0.0,
-          'lon': double.tryParse(e['lon'] as String) ?? 0.0,
-        };
-      }).toList();
-
-      setState(() {
-        _results = parsed;
-      });
-    }
-
-    setState(() {
-      _isSearching = false;
-    });
+    await _ctrl.searchPlace(query);
   }
 
   void _applySearchResult(Map<String, dynamic> place) {
+    _ctrl.applySearchResult(place);
     final lat = place['lat'] as double;
     final lon = place['lon'] as double;
     final pos = LatLng(lat, lon);
-    final displayName = place['displayName'] as String;
-
-    setState(() {
-      _center = pos;
-      _selected = pos;
-      _results = [];
-      _selectedLabelFromSearch = displayName;
-    });
-
     _mapController.move(pos, 16);
-    _searchController.text = displayName;
-  }
-
-  Future<String> _reverseGeocode(LatLng point) async {
-    final uri = Uri.parse(
-      'https://nominatim.openstreetmap.org/reverse'
-      '?lat=${point.latitude}&lon=${point.longitude}&format=json',
-    );
-
-    final response = await http.get(
-      uri,
-      headers: {'User-Agent': 'dump_and_drop_app'},
-    );
-
-    if (response.statusCode == 200) {
-      final Map<String, dynamic> data =
-          jsonDecode(response.body) as Map<String, dynamic>;
-      final fullName = data['display_name'] as String? ?? '';
-      if (fullName.isEmpty) {
-        return "${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}";
-      }
-      final parts = fullName.split(',');
-      if (parts.isEmpty) {
-        return fullName;
-      }
-      final short = parts.take(2).join(',').trim();
-      return short.isEmpty ? fullName : short;
-    }
-
-    return "${point.latitude.toStringAsFixed(5)}, ${point.longitude.toStringAsFixed(5)}";
+    _searchController.text = place['displayName'] as String;
   }
 
   Future<void> _confirmLocation() async {
-    if (_selected == null) return;
+    final s = _ctrl.selected.value;
+    if (s == null) return;
 
     String label;
-    if (_selectedLabelFromSearch != null) {
-      label = _selectedLabelFromSearch!;
+    if (_ctrl.selectedLabelFromSearch.value != null) {
+      label = _ctrl.selectedLabelFromSearch.value!;
     } else {
-      label = await _reverseGeocode(_selected!);
+      label = await _ctrl.reverseGeocode(s);
     }
 
     if (!mounted) return;
-
     Navigator.pop(context, {
       'label': label,
-      'lat': _selected!.latitude,
-      'lng': _selected!.longitude,
+      'lat': s.latitude,
+      'lng': s.longitude,
     });
   }
 
@@ -178,21 +82,14 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: _center,
+              initialCenter: _ctrl.center.value,
               initialZoom: 15,
               onTap: (tapPos, latLng) {
-                setState(() {
-                  _selected = latLng;
-                  _selectedLabelFromSearch = null;
-                });
+                _ctrl.setSelected(latLng);
               },
               onPositionChanged: (position, hasGesture) {
-                if (position.center != null && hasGesture) {
-                  setState(() {
-                    _center = position.center!;
-                    _selected = position.center!;
-                    _selectedLabelFromSearch = null;
-                  });
+                if (hasGesture) {
+                  _ctrl.setSelected(position.center);
                 }
               },
             ),
@@ -201,11 +98,13 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.dump_and_drop',
               ),
-              if (_selected != null)
-                MarkerLayer(
+              Obx(() {
+                final sel = _ctrl.selected.value;
+                if (sel == null) return const SizedBox.shrink();
+                return MarkerLayer(
                   markers: [
                     Marker(
-                      point: _selected!,
+                      point: sel,
                       width: 40,
                       height: 40,
                       child: const Icon(
@@ -215,7 +114,8 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                       ),
                     ),
                   ],
-                ),
+                );
+              }),
             ],
           ),
           Positioned(
@@ -240,23 +140,28 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                         onSubmitted: (_) => _searchPlace(),
                       ),
                     ),
-                    IconButton(
-                      icon: _isSearching
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.search),
-                      onPressed: _isSearching ? null : _searchPlace,
-                    ),
+                    Obx(() {
+                      final searching = _ctrl.isSearching.value;
+                      return IconButton(
+                        icon: searching
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.search),
+                        onPressed: searching ? null : _searchPlace,
+                      );
+                    }),
                   ],
                 ),
               ),
             ),
           ),
-          if (_results.isNotEmpty)
-            Positioned(
+          Obx(() {
+            final results = _ctrl.results;
+            if (results.isEmpty) return const SizedBox.shrink();
+            return Positioned(
               left: 12,
               right: 12,
               top: 70,
@@ -267,9 +172,9 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   constraints: const BoxConstraints(maxHeight: 220),
                   child: ListView.builder(
                     shrinkWrap: true,
-                    itemCount: _results.length,
+                    itemCount: results.length,
                     itemBuilder: (context, index) {
-                      final place = _results[index];
+                      final place = results[index];
                       return ListTile(
                         dense: true,
                         title: Text(
@@ -283,7 +188,9 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                   ),
                 ),
               ),
-            ),
+            );
+          }),
+          
         ],
       ),
       floatingActionButton: FloatingActionButton(

@@ -63,7 +63,7 @@ class _CustomerLoginPageState extends State<CustomerLoginPage> {
                 height: h * 0.3,
                 width: double.infinity,
                 child: Image.asset(
-                  'assets/images/home.jpg',
+                  'assets/images/login.png',
                   fit: BoxFit.cover,
                 ),
               ),

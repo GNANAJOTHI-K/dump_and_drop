@@ -59,7 +59,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
                 width: double.infinity,
                 decoration: const BoxDecoration(
                   image: DecorationImage(
-                    image: AssetImage('assets/images/home.jpg'),
+                    image: AssetImage('assets/images/signup.png'),
                     fit: BoxFit.cover,
                   ),
                 ),

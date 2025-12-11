@@ -1,23 +1,20 @@
 import 'package:flutter/material.dart';
-import 'customer_signup_screen.dart';              // <-- relative import
+import 'package:get/get.dart';
+import 'customer_signup_screen.dart';
 import 'package:dump_and_drop/driver_signup_screen.dart';
+import 'controllers/role_selection_controller.dart';
 
 const Color kPrimaryColor = Color(0xFF446FA8);
 
 enum UserRole { driver, customer }
 
-class RoleSelectionScreen extends StatefulWidget {
+class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
 
   @override
-  State<RoleSelectionScreen> createState() => _RoleSelectionScreenState();
-}
-
-class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
-  UserRole? _selectedRole;
-
-  @override
   Widget build(BuildContext context) {
+    final RoleSelectionController _ctrl = Get.put(RoleSelectionController());
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -71,67 +68,72 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: _buildRoleCard(
-                      role: UserRole.driver,
-                      icon: Icons.local_shipping,
-                      label: "Driver",
-                    ),
+                    child: Obx(() => _buildRoleCard(
+                          ctrl: _ctrl,
+                          role: UserRole.driver,
+                          icon: Icons.local_shipping,
+                          label: "Driver",
+                        )),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: _buildRoleCard(
-                      role: UserRole.customer,
-                      icon: Icons.person,
-                      label: "Customer",
-                    ),
+                    child: Obx(() => _buildRoleCard(
+                          ctrl: _ctrl,
+                          role: UserRole.customer,
+                          icon: Icons.person,
+                          label: "Customer",
+                        )),
                   ),
                 ],
               ),
 
               const Spacer(),
 
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: _selectedRole == null
-                      ? null
-                      : () {
-                          if (_selectedRole == UserRole.driver) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    const DriverSignupScreen(),
-                              ),
-                            );
-                          } else {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => CustomerAuthPage(), // class from file above
-                              ),
-                            );
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kPrimaryColor,
-                    disabledBackgroundColor: Colors.grey.shade400,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              Obx(() {
+                final sel = _ctrl.selectedRole.value;
+                return SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: sel == null
+                        ? null
+                        : () {
+                            if (sel == UserRole.driver) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const DriverSignupScreen(),
+                                ),
+                              );
+                            } else {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => CustomerAuthPage(),
+                                ),
+                              );
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kPrimaryColor,
+                      disabledBackgroundColor: Colors.grey.shade400,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    textStyle: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                    child: const Text(
+                      "Continue",
+                      style: TextStyle(color: Colors.white),
                     ),
                   ),
-                  child: const Text(
-                    "Continue",
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-              ),
+                );
+              }),
 
               const SizedBox(height: 24),
             ],
@@ -141,43 +143,53 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
     );
   }
 
+  /// --------------------------------------------------
+  /// 🔥 UPDATED ROLE CARD — Bigger Size + Bigger Icons
+  /// --------------------------------------------------
   Widget _buildRoleCard({
+    required RoleSelectionController ctrl,
     required UserRole role,
     required IconData icon,
     required String label,
   }) {
-    final bool isSelected = _selectedRole == role;
+    final bool isSelected = ctrl.selectedRole.value == role;
 
     return GestureDetector(
       onTap: () {
-        setState(() {
-          _selectedRole = role;
-        });
+        ctrl.select(role);
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+        height: 240, // 🔥 Increased height
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 18),
         decoration: BoxDecoration(
-          color: isSelected ? kPrimaryColor.withOpacity(0.1) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          color: isSelected ? kPrimaryColor.withOpacity(0.12) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: isSelected ? kPrimaryColor : Colors.grey.shade300,
             width: 2,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 6,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              size: 32,
+              size: 100, // 🔥 Bigger icon
               color: isSelected ? kPrimaryColor : Colors.grey.shade700,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 14),
             Text(
               label,
               style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+                fontSize: 20, // 🔥 Bigger label text
+                fontWeight: FontWeight.w700,
                 color: isSelected ? kPrimaryColor : Colors.black87,
               ),
             ),
