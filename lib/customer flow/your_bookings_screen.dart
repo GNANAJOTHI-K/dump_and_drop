@@ -1,209 +1,122 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+// lib/screens/your_bookings_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
-const Color kPrimaryColor = Color(0xFF446FA8);
+import 'live_ride_screen.dart';
 
-class YourBookingsScreen extends StatelessWidget {
+class YourBookingsScreen extends StatefulWidget {
   const YourBookingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+  State<YourBookingsScreen> createState() => _YourBookingsScreenState();
+}
 
+class _YourBookingsScreenState extends State<YourBookingsScreen> {
+  final user = FirebaseAuth.instance.currentUser;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _bookingsStream() {
     if (user == null) {
-      return Scaffold(
-        appBar: AppBar(
-          backgroundColor: kPrimaryColor,
-          foregroundColor: Colors.white,
-          title: const Text('Your Bookings'),
-        ),
-        body: const Center(
-          child: Text('User not logged in'),
-        ),
-      );
+      // Return an empty stream if user is null
+      return const Stream.empty() as Stream<QuerySnapshot<Map<String, dynamic>>>;
     }
+    return FirebaseFirestore.instance
+        .collection('rideBookings')
+        .where('customerId', isEqualTo: user!.uid)
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
 
-    final uid = user.uid;
-
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: kPrimaryColor,
-        foregroundColor: Colors.white,
         title: const Text('Your Bookings'),
+        backgroundColor: const Color(0xFF446FA8),
       ),
-      body: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        future:
-            FirebaseFirestore.instance.collection('customers').doc(uid).get(),
-        builder: (context, userSnap) {
-          String customerName = '';
-          if (userSnap.hasData && userSnap.data!.data() != null) {
-            customerName =
-                (userSnap.data!.data()!['name'] ?? '') as String? ?? '';
-          }
-
-          final bookingsStream = FirebaseFirestore.instance
-              .collection('customers')
-              .doc(uid)
-              .collection('bookings')
-              .orderBy('createdAt', descending: true)
-              .snapshots();
-
-          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: bookingsStream,
-            builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              if (!snap.hasData || snap.data!.docs.isEmpty) {
-                return const Center(
-                  child: Text('No bookings yet'),
-                );
-              }
-
-              final docs = snap.data!.docs;
-
-              return ListView.builder(
-                itemCount: docs.length,
-                itemBuilder: (context, index) {
-                  final data = docs[index].data();
-
-                  final pickupLabel =
-                      (data['pickupLabel'] ?? '') as String? ?? '';
-                  final dropLabel = (data['dropLabel'] ?? '') as String? ?? '';
-                  final passengers = data['passengers'];
-                  final service =
-                      (data['service'] ?? 'ride') as String? ?? 'ride';
-                  final status = (data['status'] ?? 'pending') as String? ??
-                      'pending';
-
-                  final rideDateTs = data['rideDate'] as Timestamp?;
-                  final pickupDateTs = data['pickupDate'] as Timestamp?;
-                  String dateText = 'Not set';
-                  final ts = rideDateTs ?? pickupDateTs;
-                  if (ts != null) {
-                    final d = ts.toDate();
-                    dateText =
-                        "${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}";
-                  }
-
-                  final statusLabel =
-                      status.isNotEmpty ? status[0].toUpperCase() + status.substring(1) : 'Pending';
-
-                  String serviceLabel = 'Ride';
-                  if (service == 'goods') {
-                    serviceLabel = 'Goods Delivery';
-                  }
-
-                  String middleLine = "";
-                  if (service == 'ride' && passengers != null) {
-                    middleLine = "Passengers: $passengers";
-                  } else if (service == 'goods') {
-                    final w = data['packageWeight'];
-                    final category = (data['packageCategory'] ?? '') as String? ?? '';
-                    final weightStr =
-                        w != null ? "${(w as num).toStringAsFixed(1)} kg" : "";
-                    middleLine = [weightStr, category]
-                        .where((e) => e.isNotEmpty)
-                        .join(" • ");
-                  }
-
-                  return Card(
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                backgroundColor: kPrimaryColor,
-                                child: Icon(
-                                  service == 'goods'
-                                      ? Icons.local_shipping
-                                      : Icons.directions_car,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  "$pickupLabel → $dropLabel",
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
+      body: user == null
+          ? const Center(child: Text('Please sign in'))
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _bookingsStream(),
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return Center(child: Text('Error: ${snap.error}'));
+                }
+                if (!snap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final docs = snap.data!.docs;
+                if (docs.isEmpty) {
+                  return const Center(child: Text('No bookings yet'));
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final docSnap = docs[index];
+                    final d = docSnap.data();
+                    final bookingId = docSnap.id;
+                    final status = d['status']?.toString() ?? 'unknown';
+                    final pickup = d['pickupLabel']?.toString() ?? '';
+                    final drop = d['dropLabel']?.toString() ?? '';
+                    final createdAtTs = d['createdAt'] is Timestamp ? d['createdAt'] as Timestamp : null;
+                    final createdAt = createdAtTs != null ? createdAtTs.toDate() : null;
+                    return Card(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        title: Text('$pickup → $drop'),
+                        subtitle: Text('Status: ${status.toUpperCase()}'
+                            + (createdAt != null ? ' • ${createdAt.toLocal()}' : '')),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ElevatedButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => LiveRideScreen(bookingId: bookingId),
                                   ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          if (customerName.isNotEmpty)
-                            Text(
-                              "Booked by: $customerName",
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Colors.black87,
-                              ),
+                                );
+                              },
+                              child: const Text('Live'),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF446FA8)),
                             ),
-                          const SizedBox(height: 4),
-                          if (middleLine.isNotEmpty)
-                            Text(
-                              middleLine,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "Date: $dateText",
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                "Status: $statusLabel",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: status == 'completed'
-                                      ? Colors.green
-                                      : status == 'cancelled'
-                                          ? Colors.red
-                                          : Colors.orange,
-                                ),
-                              ),
-                              Text(
-                                serviceLabel,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            IconButton(
+                              onPressed: () {
+                                // simple cancel (optional)
+                                showDialog(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Cancel booking'),
+                                    content: const Text('Do you want to cancel this booking?'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('No')),
+                                      TextButton(
+                                        onPressed: () async {
+                                          Navigator.pop(ctx);
+                                          await FirebaseFirestore.instance.collection('rideBookings').doc(bookingId).set({
+                                            'status': 'cancelled',
+                                          }, SetOptions(merge: true));
+                                        },
+                                        child: const Text('Yes'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.delete_outline),
+                            )
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
+                    );
+                  },
+                );
+              },
+            ),
     );
   }
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'splash_screen.dart';
 import 'role_selection_screen.dart';
@@ -11,6 +13,13 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // If launched with `--dart-define=USE_FIREBASE_EMULATOR=true`, connect to local emulators
+  const useEmulator = bool.fromEnvironment('USE_FIREBASE_EMULATOR', defaultValue: false);
+  if (useEmulator) {
+    FirebaseAuth.instance.useAuthEmulator('10.0.2.2', 9099);
+    FirebaseFirestore.instance.useFirestoreEmulator('10.0.2.2', 8080);
+  }
   runApp(const MyApp());
 }
 

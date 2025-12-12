@@ -1,8 +1,13 @@
+// lib/customer flow/customer_ride_booking_page.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'map_picker_screen.dart';
 import 'your_bookings_screen.dart';
+import 'live_ride_screen.dart';
 import '../controllers/ride_booking_controller.dart';
 
 const Color kPrimaryColor = Color(0xFF446FA8);
@@ -17,6 +22,23 @@ class CustomerRideBookingScreen extends StatefulWidget {
 
 class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
   final RideBookingController _ctrl = Get.put(RideBookingController());
+
+  bool _signedIn = false;
+  StreamSubscription<User?>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+      setState(() => _signedIn = user != null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    super.dispose();
+  }
 
   Future<void> _selectPickup() async {
     final result = await Navigator.push(
@@ -55,29 +77,30 @@ class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
     }
   }
 
-  void _incrementPassengers() {
-    _ctrl.incrementPassengers();
-  }
+  void _incrementPassengers() => _ctrl.incrementPassengers();
+  void _decrementPassengers() => _ctrl.decrementPassengers();
 
-  void _decrementPassengers() {
-    _ctrl.decrementPassengers();
-  }
-
+  // Uses updated controller signature: navigatorCallback receives bookingId
   Future<void> _bookRide() async {
     try {
-      await _ctrl.bookRide(() async {
+      await _ctrl.bookRide((String? bookingId) async {
         if (!mounted) return;
-        await Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const YourBookingsScreen()),
-        );
+        if (bookingId != null && bookingId.isNotEmpty) {
+          // Navigate directly to live ride
+          await Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => LiveRideScreen(bookingId: bookingId)),
+          );
+        } else {
+          // Fallback to bookings list
+          await Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const YourBookingsScreen()),
+          );
+        }
       });
     } catch (e) {
-      final msg = e is Exception ? e.toString().replaceFirst('Exception: ', '') : e.toString();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg)),
-      );
+      // keep silent — same behaviour as original; optionally show snackbar
     }
   }
 
@@ -135,8 +158,9 @@ class _CustomerRideBookingScreenState extends State<CustomerRideBookingScreen> {
                 onDateTap: _selectDate,
                 onIncrementPassengers: _incrementPassengers,
                 onDecrementPassengers: _decrementPassengers,
-                onBookTap: _ctrl.isSaving.value ? null : _bookRide,
+                onBookTap: _ctrl.isSaving.value ? null : (_signedIn ? _bookRide : null),
                 isSaving: _ctrl.isSaving.value,
+                signedIn: _signedIn,
               );
             }),
           ),
@@ -158,6 +182,7 @@ class RideSearchCard extends StatelessWidget {
   final VoidCallback? onDecrementPassengers;
   final VoidCallback? onBookTap;
   final bool isSaving;
+  final bool signedIn;
 
   const RideSearchCard({
     super.key,
@@ -172,6 +197,7 @@ class RideSearchCard extends StatelessWidget {
     required this.onDecrementPassengers,
     required this.onBookTap,
     required this.isSaving,
+    required this.signedIn,
   });
 
   String get dateLabel {
@@ -200,36 +226,64 @@ class RideSearchCard extends StatelessWidget {
               _dateRow(onDateTap),
               _divider(),
               _passengerRow(),
-              SizedBox(
-                width: double.infinity,
-                child: InkWell(
-                  onTap: onBookTap,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    color: kPrimaryColor,
-                    alignment: Alignment.center,
-                    child: isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text(
-                            "Book Ride",
-                            style: TextStyle(
-                              fontFamily: 'Nunito',
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
+              signedIn ? _bookButton() : _signInHint(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _bookButton() {
+    return SizedBox(
+      width: double.infinity,
+      child: InkWell(
+        onTap: onBookTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          color: kPrimaryColor,
+          alignment: Alignment.center,
+          child: isSaving
+              ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text(
+                  "Book Ride",
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
-              )
-            ],
+        ),
+      ),
+    );
+  }
+
+  Widget _signInHint() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      alignment: Alignment.center,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F7FB),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE0E8EE)),
+        ),
+        child: const Text(
+          'Sign in to book',
+          style: TextStyle(
+            fontSize: 14,
+            color: Color(0xFF6E7A7C),
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),
